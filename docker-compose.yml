@@ -1,0 +1,55 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: dukastock
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--maxmemory", "${REDIS_MAXMEMORY:-128mb}", "--maxmemory-policy", "${REDIS_MAXMEMORY_POLICY:-allkeys-lru}", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      # Production: pass DATABASE_URL (cloud PostgreSQL, e.g. Neon) in the
+      # container environment/secrets manager to use it instead of the local
+      # `db` service. Default keeps the bundled local database.
+      DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/dukastock?schema=public}
+      REDIS_URL: redis://redis:6379
+      SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET in .env}
+      COOKIE_SECRET: ${COOKIE_SECRET:?set COOKIE_SECRET in .env}
+      COOKIE_SECURE: "true"
+      CLIENT_URL: ${CLIENT_URL:-http://localhost:4000}
+      STATIC_DIR: /app/client/dist
+    ports:
+      - "${PORT:-4000}:4000"
+
+volumes:
+  pgdata:
+  redisdata:

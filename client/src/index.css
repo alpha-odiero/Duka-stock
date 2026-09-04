@@ -1,0 +1,407 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ---------------------------------------------------------------------------
+   DukaStack storefront design tokens (default theme = Deep Navy + Duka Orange).
+   StorefrontContext injects per-shop overrides for the brand colors; these
+   :root defaults guarantee coherent rendering before/without a consumer fetch.
+   Components MUST reference these variables, never hardcoded hex values.
+--------------------------------------------------------------------------- */
+:root {
+  --sf-primary: #0f172a;          /* Deep Navy — structure/trust */
+  --sf-primary-light: #1e293b;    /* Slate Navy */
+  --sf-secondary: #1e293b;        /* Slate Navy — secondary dark surface */
+  --sf-accent: #f97316;           /* Duka Orange — action */
+  --sf-accent-hover: #d95f0b;
+  --sf-accent-soft: rgba(249, 115, 22, 0.14);
+  --sf-bg: #f8fafc;               /* page background */
+  --sf-surface: #ffffff;          /* cards / panels */
+  --sf-warm: #fff7ed;             /* warm section background */
+  --sf-text: #111827;             /* primary text */
+  --sf-text-secondary: #64748b;
+  --sf-muted: #94a3b8;
+  --sf-line: #e2e8f0;             /* borders */
+  --sf-line-subtle: #f1f5f9;      /* hairlines / dividers */
+  --sf-success: #16a34a;
+  --sf-warning: #f59e0b;
+  --sf-error: #dc2626;
+  --sf-info: #2563eb;
+
+  /* Default (green) brand/primary tokens backing the shared Tailwind
+     `brand` / `primary` colors. These are the historical values and stay
+     unchanged for the customer-facing Front Store. The Dashboard overrides
+     them within its own .dashboard scope below. */
+  --duk-brand: 22 101 52;           /* #166534 */
+  --duk-brand-50: 236 253 245;      /* #ecfdf5 */
+  --duk-brand-100: 209 250 229;     /* #d1fae5 */
+  --duk-brand-200: 167 243 208;     /* #a7f3d0 */
+  --duk-brand-300: 110 231 183;     /* #6ee7b7 */
+  --duk-brand-400: 52 211 153;      /* #34d399 */
+  --duk-brand-500: 16 185 129;      /* #10b981 */
+  --duk-brand-600: 5 150 105;       /* #059669 */
+  --duk-brand-700: 4 120 87;        /* #047857 */
+  --duk-brand-800: 6 95 70;         /* #065f46 */
+  --duk-brand-900: 6 78 59;         /* #064e3b */
+  --duk-primary: 22 101 52;         /* #166534 */
+  --duk-primary-light: 220 252 231; /* #DCFCE7 */
+  --duk-primary-dark: 20 83 45;     /* #14532d */
+  --duk-surface: 255 255 255;       /* #FFFFFF */
+  --duk-canvas: 248 250 249;        /* #F8FAF9 */
+  --duk-ink: 23 32 27;              /* #17201B */
+  --duk-muted: 100 112 103;         /* #647067 */
+  --duk-line: 229 231 235;          /* #E5E7EB */
+  --duk-success: 22 163 74;         /* #16A34A */
+  --duk-emerald-50: 236 253 245;    /* #ecfdf5 */
+  --duk-emerald-100: 209 250 229;   /* #d1fae5 */
+  --duk-emerald-200: 167 243 208;   /* #a7f3d0 */
+  --duk-emerald-300: 110 231 183;   /* #6ee7b7 */
+  --duk-emerald-400: 52 211 153;    /* #34d399 */
+  --duk-emerald-500: 16 185 129;    /* #10b981 */
+  --duk-emerald-600: 5 150 105;     /* #059669 */
+  --duk-emerald-700: 4 120 87;      /* #047857 */
+  --duk-emerald-800: 6 95 70;       /* #065f46 */
+  --duk-emerald-900: 6 78 59;       /* #064e3b */
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    @apply bg-canvas text-ink antialiased;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+  *:focus-visible {
+    @apply outline-2 outline-offset-2 outline-brand;
+  }
+  ::selection {
+    background: rgb(242 140 24 / 0.22);
+  }
+}
+
+@layer components {
+  .card {
+    @apply rounded-xl border border-line bg-surface shadow-card;
+  }
+  .card-hover {
+    @apply transition-[box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:shadow-[0_12px_32px_-14px_rgb(23_32_27/0.22)];
+  }
+  .input {
+    @apply w-full rounded-lg border border-line bg-surface px-3.5 py-2.5 text-sm text-ink placeholder:text-muted/70 transition-all focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20;
+  }
+  .label {
+    @apply mb-1.5 block text-sm font-medium text-ink;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Duka Store Dashboard theme (auth'd POS/Dashboard only).
+   These tokens are scoped to the .dashboard wrapper so the customer-facing
+   Front Store (StorefrontLayout, which uses --sf-* variables) is untouched.
+--------------------------------------------------------------------------- */
+.dashboard {
+  --duk-brand: 242 140 24;          /* #F28C18 */
+  --duk-brand-50: 254 246 236;      /* #FEF6EC */
+  --duk-brand-100: 253 234 210;     /* #FDEAD2 */
+  --duk-brand-200: 251 214 165;     /* #FBD6A5 */
+  --duk-brand-300: 248 189 110;     /* #F8BD6E */
+  --duk-brand-400: 245 164 60;      /* #F5A43C */
+  --duk-brand-500: 242 140 24;      /* #F28C18 */
+  --duk-brand-600: 217 111 0;       /* #D96F00 */
+  --duk-brand-700: 184 89 0;        /* #B85900 */
+  --duk-brand-800: 138 68 0;        /* #8A4400 */
+  --duk-brand-900: 99 48 0;         /* #633000 */
+  --duk-primary: 242 140 24;        /* #F28C18 */
+  --duk-primary-light: 253 234 210; /* #FDEAD2 */
+  --duk-primary-dark: 217 111 0;    /* #D96F00 */
+  --duk-surface: 255 255 255;       /* #FFFFFF — cards/panels/inputs */
+  --duk-canvas: 247 248 250;        /* #F7F8FA — page background */
+  --duk-ink: 11 11 11;              /* #0B0B0B — headings/strong text */
+  --duk-muted: 61 65 69;            /* #3D4145 — secondary text/icons */
+  --duk-line: 229 231 235;          /* #E5E7EB — neutral borders */
+
+  /* Map the green "success"/emerald tokens to the Duka palette so no green
+     appears anywhere in the Dashboard. */
+  --duk-success: 242 140 24;        /* #F28C18 */
+  --duk-emerald-50: 254 246 236;    /* #FEF6EC */
+  --duk-emerald-100: 253 234 210;   /* #FDEAD2 */
+  --duk-emerald-200: 251 214 165;   /* #FBD6A5 */
+  --duk-emerald-300: 248 189 110;   /* #F8BD6E */
+  --duk-emerald-400: 245 164 60;    /* #F5A43C */
+  --duk-emerald-500: 242 140 24;    /* #F28C18 */
+  --duk-emerald-600: 217 111 0;     /* #D96F00 */
+  --duk-emerald-700: 184 89 0;      /* #B85900 */
+  --duk-emerald-800: 138 68 0;      /* #8A4400 */
+  --duk-emerald-900: 99 48 0;       /* #633000 */
+
+  /* Raw hex accent + neutrals for dashboard-specific helper classes. */
+  --duk-brand-dark: #D96F00;
+  --duk-charcoal: #3D4145;
+  --duk-ink: #0B0B0B;
+  --duk-white: #FFFFFF;
+}
+
+/* ---------------------------------------------------------------------------
+   Duka Store Dashboard dark mode.
+   Scoped to .dashboard under html.dark so the customer-facing Front Store
+   (which uses --sf-* tokens) stays in its light branding. Brand/orange tokens
+   are kept identical since they read well on both light and dark surfaces.
+   Converted-inputs use --duk-surface so they invert with the theme.
+--------------------------------------------------------------------------- */
+html.dark .dashboard {
+  --duk-surface: 30 32 36;          /* #1E2024 — cards / panels / inputs */
+  --duk-canvas: 17 19 22;           /* #111316 — page background */
+  --duk-ink: 240 240 242;           /* #F0F0F2 — headings / strong text */
+  --duk-muted: 163 168 175;         /* #A3A8AF — secondary text / icons */
+  --duk-line: 48 51 57;             /* #303339 — neutral borders */
+
+  /* Darker brand-light tints for hover/active states so orange stays visible. */
+  --duk-primary-light: 61 39 18;    /* warm dark tint */
+  --duk-brand-50: 46 35 22;         /* dark tint of brand-50 */
+  --duk-brand-100: 54 39 22;
+
+  /* Utility neutrals for the dashboard. */
+  --duk-charcoal: #C9CED4;
+  --duk-ink: #F0F0F2;
+  --duk-white: #0F1114;
+}
+
+/* Primary action button keeps its orange gradient in both themes. */
+html.dark .dashboard .d-btn-primary {
+  background-image: linear-gradient(to bottom, #F28C18, #D96F00);
+  color: #FFFFFF;
+}
+html.dark .dashboard .d-btn-primary:hover {
+  background-image: linear-gradient(to bottom, #E08210, #C86400);
+}
+
+/* Soften box shadows on dark backgrounds so cards read as elevated surfaces. */
+html.dark .dashboard .card {
+  border-color: rgb(var(--duk-line));
+  background-color: rgb(var(--duk-surface));
+}
+html.dark .dashboard .card-hover:hover {
+  box-shadow: 0 12px 32px -14px rgb(0 0 0 / 0.6);
+}
+
+/* Keep the page/overscroll background dark too. */
+html.dark body {
+  background-color: rgb(17 19 22);
+  color: rgb(240 240 242);
+}
+
+/* Primary action button used across the dashboard. */
+.dashboard .d-btn-primary {
+  background-image: linear-gradient(to bottom, #F28C18, #D96F00);
+  color: #FFFFFF;
+}
+.dashboard .d-btn-primary:hover {
+  background-image: linear-gradient(to bottom, #E08210, #C86400);
+}
+
+/* Custom slim scrollbar for POS cart lists */
+.nice-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.nice-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.nice-scroll::-webkit-scrollbar-thumb {
+  background: #d3d8d4;
+  border-radius: 8px;
+}
+.nice-scroll::-webkit-scrollbar-thumb:hover {
+  background: #b6bdb8;
+}
+
+/* ===== Thermal receipt =====
+   Rendered at a compact 80mm (receipt-thermal width) with monospace type so
+   it prints cleanly on thermal printers and reads as a real receipt on screen.
+   The business identity comes from the registered shop profile, while
+   "DukaStock POS" appears only as platform branding. */
+
+.receipt-thermal {
+  font-family: 'Courier New', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: #111827;
+  background: #ffffff;
+  width: 100%;
+  max-width: 420px;
+  margin: 0 auto;
+}
+
+.receipt-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding-bottom: 0.6rem;
+  border-bottom: 1px dashed #d1d5db;
+  color: #6b7280;
+}
+
+.receipt-business {
+  text-align: center;
+  padding: 0.75rem 0 0.4rem;
+}
+
+.receipt-name {
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #111827;
+  margin-bottom: 0.25rem;
+}
+
+.receipt-line {
+  font-size: 0.72rem;
+  line-height: 1.5;
+  color: #374151;
+}
+
+.receipt-rule {
+  border-top: 1px dashed #d1d5db;
+  margin: 0.5rem 0;
+}
+
+.receipt-info,
+.receipt-payment,
+.receipt-grand {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.78rem;
+}
+
+.receipt-kv {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.receipt-k {
+  color: #6b7280;
+}
+
+.receipt-v {
+  color: #111827;
+  font-weight: 600;
+  text-align: right;
+}
+
+.receipt-items {
+  font-size: 0.78rem;
+}
+
+.receipt-items-head {
+  display: flex;
+  gap: 0.5rem;
+  font-weight: 700;
+  color: #111827;
+  padding-bottom: 0.3rem;
+  border-bottom: 1px dashed #d1d5db;
+}
+
+.rih-name { flex: 1; }
+.rih-qty { width: 2.5rem; text-align: right; }
+.rih-amount { width: 4.5rem; text-align: right; }
+
+.receipt-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.35rem 0;
+  border-bottom: 1px dotted #e5e7eb;
+}
+
+.ri-name-row {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.ri-name {
+  color: #111827;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.ri-price {
+  font-size: 0.68rem;
+  color: #6b7280;
+}
+
+.ri-amount {
+  width: 4.5rem;
+  text-align: right;
+  color: #111827;
+  font-weight: 600;
+}
+
+.receipt-total {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  border-top: 1px dashed #d1d5db;
+  margin-top: 0.35rem;
+  padding-top: 0.4rem;
+}
+
+.receipt-total-label {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #111827;
+}
+
+.receipt-total-value {
+  font-size: 1.1rem;
+  font-weight: 800;
+  color: #111827;
+}
+
+.receipt-footer {
+  text-align: center;
+  padding-top: 0.4rem;
+  font-size: 0.72rem;
+}
+
+.receipt-footer-note {
+  color: #374151;
+  line-height: 1.6;
+}
+
+.receipt-footer-brand {
+  color: #9ca3af;
+  margin-top: 0.4rem;
+}
+
+/* Print only the receipt; keep the on-screen toolbar hidden. Force a 80mm
+   roll width with A4 height so thermal printers get clean continuous paper. */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #receipt,
+  #receipt * {
+    visibility: visible;
+  }
+  #receipt {
+    position: absolute;
+    inset: 0;
+    width: 80mm;
+    max-width: 80mm;
+    margin: 0;
+    padding: 4mm;
+    border: none;
+    box-shadow: none;
+    background: #ffffff;
+  }
+  @page {
+    size: 80mm auto;
+    margin: 0;
+  }
+}

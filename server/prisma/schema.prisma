@@ -1,0 +1,1333 @@
+// DukaStock Database Schema
+// PostgreSQL with Prisma ORM.
+// All monetary values use Decimal (NUMERIC) - never floats.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ===== Enums =====
+
+enum PaymentMethod {
+  CASH
+  MPESA
+  CARD
+  BANK
+  CREDIT
+  OTHER
+}
+
+enum PaymentStatus {
+  PAID
+  PENDING
+  PARTIALLY_PAID
+  REFUNDED
+  PARTIALLY_REFUNDED
+  VOID
+  CANCELLED
+}
+
+enum StockMovementType {
+  STOCK_IN
+  POS_SALE
+  ONLINE_ORDER
+  PURCHASE
+  DAMAGE
+  EXPIRED
+  LOST
+  ADJUSTMENT
+  RETURN
+}
+
+enum StockMovementDirection {
+  IN
+  OUT
+}
+
+enum UserRole {
+  OWNER
+  ADMIN
+  MANAGER
+  CASHIER
+  INVENTORY
+  ATTENDANT // legacy alias retained for backwards compatibility
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum SaleSource {
+  POS
+  ONLINE
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PROCESSING
+  READY
+  COMPLETED
+  CANCELLED
+}
+
+enum ExpenseCategory {
+  RENT
+  ELECTRICITY
+  TRANSPORT
+  INTERNET
+  SALARIES
+  PACKAGING
+  REPAIRS
+  OTHER
+}
+
+// ===== Payments, Returns & Refunds =====
+
+// How a refund is settled. ORIGINAL refunds back along the original payment
+// method; STORE_CREDIT creates a credit balance for the customer.
+enum RefundMethod {
+  CASH
+  MPESA
+  CARD
+  BANK
+  STORE_CREDIT
+  ORIGINAL
+}
+
+enum RefundStatus {
+  PENDING
+  APPROVED
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum ReturnReason {
+  DAMAGED
+  DEFECTIVE
+  WRONG_PRODUCT
+  CHANGED_MIND
+  INCORRECT_QUANTITY
+  OTHER
+}
+
+enum ReturnCondition {
+  MINT
+  GOOD
+  FAIR
+  DAMAGED
+}
+
+enum ReturnStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  PROCESSING
+  COMPLETED
+}
+
+// ===== Product Variants & Batches =====
+
+// A batch/expiry lot. Batches track perishable goods (FEFO) and must be
+// received through a purchase to get an expiry date.
+enum BatchStatus {
+  ACTIVE
+  EXPIRING_SOON
+  EXPIRED
+  CONSUMED
+}
+
+// ===== Tax =====
+
+enum TaxType {
+  INCLUSIVE
+  EXCLUSIVE
+}
+
+enum TaxCategoryType {
+  TAXABLE
+  TAX_EXEMPT
+  ZERO_RATED
+  STANDARD
+}
+
+// ===== Models =====
+
+model User {
+  id           String     @id @default(uuid())
+  fullName     String
+  userName     String?
+  email        String     @unique
+  phone        String?
+  avatar       String?
+  passwordHash String
+  role         UserRole   @default(OWNER)
+  roleId       String?
+  roleRef      Role?      @relation(fields: [roleId], references: [id], onDelete: SetNull)
+  status       UserStatus @default(ACTIVE)
+  shopId       String?
+  shop         Shop?      @relation("ShopMembers", fields: [shopId], references: [id], onDelete: SetNull)
+  ownedShop    Shop?      @relation("ShopOwner")
+  registerId   String?
+  register     Register?  @relation("RegisterStaff", fields: [registerId], references: [id], onDelete: SetNull)
+  lastLoginAt  DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  salesMade           Sale[]                   @relation("SaleCashier")
+  auditLogs           AuditLog[]
+  shifts              Shift[]                  @relation("ShiftCashier")
+  permissionOverrides UserPermissionOverride[]
+
+  @@index([shopId])
+  @@index([status])
+  @@index([roleId])
+}
+
+model Shop {
+  id            String   @id @default(uuid())
+  ownerId       String   @unique
+  owner         User     @relation("ShopOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  name          String
+  description   String?
+  phone         String?
+  email         String?
+  location      String?
+  address       String?
+  city          String?
+  country       String?
+  businessPin   String?
+  website       String?
+  logo          String?
+  currency      String   @default("KES")
+  timezone      String   @default("Africa/Nairobi")
+  registerName  String   @default("POS-01")
+  receiptFooter String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  users         User[]           @relation("ShopMembers")
+  registers     Register[]
+  categories    Category[]
+  products      Product[]
+  suppliers     Supplier[]
+  purchases     Purchase[]
+  sales         Sale[]
+  orders        Order[]
+  customers     Customer[]
+  expenses      Expense[]
+  notifications Notification[]
+  auditLogs     AuditLog[]
+  roles         Role[]
+  invitations   Invitation[]
+  shifts        Shift[]
+  storefront    Storefront?
+  payments      Payment[]
+  returns       Return[]
+  refunds       Refund[]
+  taxRates      TaxRate[]
+  variants      ProductVariant[]
+  batches       Batch[]
+  cashMovements CashMovement[]
+  StockMovement StockMovement[]
+  offers        Offer[]
+  integrations  ApiIntegration[]
+}
+
+// ===== Registers =====
+// POS registers belong to a shop and record the register a sale was made on.
+// A register may be assigned to a default staff member, but the actual register
+// used for every transaction is still recorded on each sale.
+
+enum RegisterStatus {
+  ACTIVE
+  INACTIVE
+  OFFLINE
+}
+
+// ===== Roles & Permissions (DB-driven authorization) =====
+// The Role table is the single source of truth for what every staff member can
+// access. Custom roles are created by the business; default roles are seeded per
+// shop on creation. A user's effective permissions = their Role's permissions,
+// adjusted by any UserPermissionOverride rows for that user.
+//
+// Limiting a role (discount/refund/price) is stored separately so the UI can
+// surface "limits" independently of plain on/off permissions.
+
+enum RoleType {
+  SYSTEM
+  CUSTOM
+}
+
+model Role {
+  id          String   @id @default(uuid())
+  shopId      String?
+  shop        Shop?    @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  type        RoleType @default(CUSTOM)
+  isDefault   Boolean  @default(false)
+  isProtected Boolean  @default(false) // cannot be deleted/edited into uselessness (Owner)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  permissions RolePermission[]
+  limits      RoleLimit?
+  users       User[]
+  invitations Invitation[]
+
+  @@unique([shopId, name])
+  @@index([shopId])
+}
+
+// Global catalog of every possible permission (resource.action). Seeded once.
+model Permission {
+  id          String  @id @default(uuid())
+  key         String  @unique
+  name        String
+  group       String // e.g. "Products", "POS", "Reports" for grouping in the UI
+  description String?
+  sortOrder   Int     @default(0)
+
+  roles     RolePermission[]
+  overrides UserPermissionOverride[]
+
+  @@index([group])
+}
+
+// Join: which permissions a role grants.
+model RolePermission {
+  id           String     @id @default(uuid())
+  roleId       String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permissionId String
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
+}
+
+// Per-user grant/deny override on top of their role's permissions.
+model UserPermissionOverride {
+  id           String     @id @default(uuid())
+  userId       String
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permissionId String
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  granted      Boolean    @default(true) // false = explicitly denied despite role
+  createdAt    DateTime   @default(now())
+
+  @@unique([userId, permissionId])
+  @@index([userId])
+}
+
+// Advanced limits tied to a role (discount/refund/price override).
+model RoleLimit {
+  id                     String   @id @default(uuid())
+  roleId                 String   @unique
+  role                   Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  maxDiscountPercent     Decimal? @db.Decimal(5, 2) // null/0 = no discount allowed, huge = unlimited
+  allowUnlimitedDiscount Boolean  @default(false)
+  refundApprovalRequired Boolean  @default(false)
+  maxRefundAmount        Decimal? @db.Decimal(12, 2) // cap for self-approved refunds
+  canApproveRefund       Boolean  @default(false)
+  canOverridePrice       Boolean  @default(false)
+  canChangePrice         Boolean  @default(false)
+  updatedAt              DateTime @updatedAt
+}
+
+// Staff invitation: invite instead of sharing passwords. Admin enters name,
+// email and role; the staff member accepts and sets their own password.
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  EXPIRED
+  REVOKED
+}
+
+model Invitation {
+  id          String           @id @default(uuid())
+  shopId      String
+  shop        Shop             @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  roleId      String
+  role        Role             @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  fullName    String
+  email       String
+  token       String           @unique
+  status      InvitationStatus @default(PENDING)
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  createdById String?
+  createdAt   DateTime         @default(now())
+
+  @@index([shopId])
+  @@index([email])
+}
+
+// POS register shift management: opening/closing cash and reconciliation.
+model Shift {
+  id              String    @id @default(uuid())
+  shopId          String
+  shop            Shop      @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  registerId      String?
+  register        Register? @relation(fields: [registerId], references: [id], onDelete: SetNull)
+  cashierId       String?
+  cashier         User?     @relation("ShiftCashier", fields: [cashierId], references: [id], onDelete: SetNull)
+  openedAt        DateTime  @default(now())
+  openedBy        String?
+  openingCash     Decimal   @default(0) @db.Decimal(12, 2)
+  closedAt        DateTime?
+  closedBy        String?
+  closingCash     Decimal?  @db.Decimal(12, 2)
+  actualCash      Decimal?  @db.Decimal(12, 2)
+  expectedCash    Decimal?  @db.Decimal(12, 2)
+  difference      Decimal?  @db.Decimal(12, 2)
+  cashSales       Decimal?  @db.Decimal(12, 2)
+  cashRefunds     Decimal?  @db.Decimal(12, 2)
+  cashWithdrawals Decimal?  @db.Decimal(12, 2)
+  notes           String?
+  status          String    @default("OPEN") // OPEN | CLOSED | PENDING_APPROVAL | APPROVED
+  approvedBy      String?
+  approvedAt      DateTime?
+  createdAt       DateTime  @default(now())
+
+  cashMovements CashMovement[]
+
+  @@index([shopId])
+  @@index([registerId])
+  @@index([cashierId])
+}
+
+model Register {
+  id        String         @id @default(uuid())
+  shopId    String
+  shop      Shop           @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  name      String
+  status    RegisterStatus @default(ACTIVE)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  staff         User[]         @relation("RegisterStaff")
+  sales         Sale[]
+  shifts        Shift[]
+  payments      Payment[]
+  refunds       Refund[]
+  cashMovements CashMovement[]
+
+  @@unique([shopId, name])
+  @@index([shopId])
+}
+
+// ===== Storefront CMS Models =====
+// Each storefront record belongs to exactly one shop. All content is
+// configurable from the dashboard; the public website reads this config.
+
+enum StorefrontStatus {
+  DRAFT
+  PUBLISHED
+}
+
+// Top-level storefront record (one per shop). Holds shop-facing store info
+// that is editable by the owner, its publish state, and completeness data.
+model Storefront {
+  id                String           @id @default(uuid())
+  shopId            String           @unique
+  shop              Shop             @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  status            StorefrontStatus @default(DRAFT)
+  publishedAt       DateTime?
+  storeName         String?
+  tagline           String?
+  heroImageUrl      String?
+  heroImagePublicId String?
+  logoUrl           String?
+  logoPublicId      String?
+  faviconPublicId   String?
+  copyright         String?
+  customerCount     Int              @default(0)
+  yearEstablished   Int? // year the business was established
+  onboardingStep    Int              @default(0)
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  hero         StorefrontHero?
+  about        StorefrontAbout?
+  contact      StorefrontContact?
+  social       StorefrontSocial?
+  branding     StorefrontBranding?
+  seo          StorefrontSeo?
+  sections     StorefrontSection[]
+  featured     StorefrontFeatured[]
+  features     StorefrontFeature[]
+  testimonials StorefrontTestimonial[]
+  faqs         StorefrontFaq[]
+  navigation   StorefrontNavItem[]
+}
+
+// Homepage hero section config.
+model StorefrontHero {
+  id                String     @id @default(uuid())
+  storefrontId      String     @unique
+  storefront        Storefront @relation(fields: [storefrontId], references: [id], onDelete: Cascade)
+  title             String?
+  subtitle          String?
+  description       String?
+  primaryText       String?
+  primaryLink       String?
+  secondaryText     String?
+  secondaryLink     String?
+  imageUrl          String?
+  imagePublicId     String?
+  backgroundEnabled Boolean    @default(false)
+  alignment         String     @default("left") // left | center
+  show              Boolean    @default(true)
+}
+
+// Visibility + ordering of homepage sections. `section` is a stable key.
+model StorefrontSection {
+  id           String     @id @default(uuid())
+  storefrontId String
+  storefront   Storefront @relation(fields: [storefrontId], references: [id], onDelete: Cascade)
+  section      String // hero | categories | featured | popular | new | promo | about | why | testimonials | faq | cta | newsletter
+  enabled      Boolean    @default(true)
+  sortOrder    Int        @default(0)
+
+  @@unique([storefrontId, section])
+  @@index([storefrontId])
+}
+
+// Featured products reference real products (never duplicate data).
+model StorefrontFeatured {
+  id           String     @id @default(uuid())
+  storefrontId String
+  storefront   Storefront @relation(fields: [storefrontId], references: [id], onDelete: Cascade)
+  productId    String
+  product      Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  sortOrder    Int        @default(0)
+  createdAt    DateTime   @default(now())
+
+  @@unique([storefrontId, productId])
+  @@index([storefrontId])
+}
+
+// About page content.
+model StorefrontAbout {
+  id                     String     @id @default(uuid())
+  storefrontId           String     @unique
+  storefront             Storefront @relation(fields: [storefrontId], references: [id], onDelete: Cascade)
+  title                  String?
+  introduction           String?
+  story                  String?
+  mission                String?
+  vision                 String?
+  values                 String? // newline-separated values
+  imageUrl               String?
+  imagePublicId          String?
+  secondaryImageUrl      String?
+  secondaryImagePublicId String?
+  showTeam               Boolean    @default(false)
+}
+
+// "Why Choose Us" feature cards.
+model StorefrontFeature {
+  id           String     @id @default(uuid())
+  storefrontId String
+  storefront   Storefront @relation(fields: [storefrontId], references: [id], onDelete: Cascade)
+  title        String
+  description  String
+  icon         String? // lucide icon name (optional)
+  enabled      Boolean    @default(true)
+  sortOrder    Int        @default(0)
+  createdAt    DateTime   @default(now())
+
+  @@index([storefrontId])
+}
+
+model StorefrontTestimonial {
+  id            String     @id @default(uuid())
+  storefrontId  String
+  storefront    Storefront @relation(fields: [storefrontId], references: [id], onDelete: Cascade)
+  customerName  String
+  role          String?
+  content       String
+  imageUrl      String?
+  imagePublicId String?
+  rating        Int        @default(5) // 1-5
+  featured      Boolean    @default(false)
+  enabled       Boolean    @default(true)
+  sortOrder     Int        @default(0)
+  createdAt     DateTime   @default(now())
+
+  @@index([storefrontId])
+}
+
+model StorefrontFaq {
+  id           String     @id @default(uuid())
+  storefrontId String
+  storefront   Storefront @relation(fields: [storefrontId], references: [id], onDelete: Cascade)
+  question     String
+  answer       String
+  enabled      Boolean    @default(true)
+  sortOrder    Int        @default(0)
+  createdAt    DateTime   @default(now())
+
+  @@index([storefrontId])
+}
+
+model StorefrontContact {
+  id              String     @id @default(uuid())
+  storefrontId    String     @unique
+  storefront      Storefront @relation(fields: [storefrontId], references: [id], onDelete: Cascade)
+  title           String?
+  description     String?
+  phone           String?
+  whatsappNumber  String?
+  whatsappMessage String?
+  email           String?
+  location        String?
+  address         String?
+  mapsUrl         String?
+  // Opening hours stored as JSON array [{day, open, close}].
+  openingHours    Json?
+  showContactForm Boolean    @default(true)
+  showWhatsappBtn Boolean    @default(true)
+}
+
+model StorefrontSocial {
+  id           String     @id @default(uuid())
+  storefrontId String     @unique
+  storefront   Storefront @relation(fields: [storefrontId], references: [id], onDelete: Cascade)
+  facebook     String?
+  instagram    String?
+  tiktok       String?
+  twitter      String?
+  youtube      String?
+  linkedin     String?
+}
+
+// Branding / appearance.
+model StorefrontBranding {
+  id             String     @id @default(uuid())
+  storefrontId   String     @unique
+  storefront     Storefront @relation(fields: [storefrontId], references: [id], onDelete: Cascade)
+  primaryColor   String     @default("#176B5B")
+  secondaryColor String     @default("#17252D")
+  accentColor    String     @default("#D6A84F")
+  buttonStyle    String     @default("rounded") // rounded | pill | square
+  radius         String     @default("smooth") // subtle | smooth | large
+  font           String     @default("inter")
+}
+
+// Navigation items (system routes are protected client-side).
+model StorefrontNavItem {
+  id           String     @id @default(uuid())
+  storefrontId String
+  storefront   Storefront @relation(fields: [storefrontId], references: [id], onDelete: Cascade)
+  label        String
+  href         String
+  sortOrder    Int        @default(0)
+  enabled      Boolean    @default(true)
+  isSystem     Boolean    @default(false) // cart/checkout can't be removed
+  createdAt    DateTime   @default(now())
+
+  @@index([storefrontId])
+}
+
+model StorefrontSeo {
+  id              String     @id @default(uuid())
+  storefrontId    String     @unique
+  storefront      Storefront @relation(fields: [storefrontId], references: [id], onDelete: Cascade)
+  title           String?
+  description     String?
+  keywords        String?
+  ogImageUrl      String?
+  ogImagePublicId String?
+  ogTitle         String?
+  ogDescription   String?
+}
+
+model Category {
+  id                String   @id @default(uuid())
+  shopId            String
+  shop              Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  name              String
+  slug              String?
+  description       String?
+  imageUrl          String?
+  imagePublicId     String?
+  displayOrder      Int      @default(0)
+  visible           Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  products Product[]
+  offers   OfferCategory[]
+
+  @@unique([shopId, name])
+  @@index([shopId])
+}
+
+model Supplier {
+  id        String   @id @default(uuid())
+  shopId    String
+  shop      Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  name      String
+  phone     String?
+  email     String?
+  address   String?
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  products  Product[]
+  purchases Purchase[]
+  batches   Batch[]
+
+  @@index([shopId])
+}
+
+model Product {
+  id                 String    @id @default(uuid())
+  shopId             String
+  shop               Shop      @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  categoryId         String?
+  category           Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  supplierId         String?
+  supplier           Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  taxRateId          String?
+  taxRate            TaxRate?  @relation(fields: [taxRateId], references: [id], onDelete: SetNull)
+  name               String
+  slug               String?
+  sku                String?
+  barcode            String?
+  buyingPrice        Decimal   @db.Decimal(12, 2)
+  sellingPrice       Decimal   @db.Decimal(12, 2)
+  quantity           Int       @default(0)
+  lowStockThreshold  Int       @default(5)
+  unit               String    @default("piece")
+  imageUrl           String?
+  cloudinaryPublicId String?
+  description        String?
+  isActive           Boolean   @default(true)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  stockMovements     StockMovement[]
+  saleItems          SaleItem[]
+  purchaseItems      PurchaseItem[]
+  orderItems         OrderItem[]
+  StorefrontFeatured StorefrontFeatured[]
+  variants           ProductVariant[]
+  batches            Batch[]
+  returnItems        ReturnItem[]
+  offers             OfferProduct[]
+
+  // SKU and barcode are unique within a shop, not globally
+  @@unique([shopId, sku])
+  @@unique([shopId, barcode])
+  @@index([shopId])
+  @@index([categoryId])
+  @@index([supplierId])
+  @@index([name])
+}
+
+model StockMovement {
+  id             String                 @id @default(uuid())
+  shopId         String
+  shop           Shop                   @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  productId      String
+  product        Product                @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variantId      String?
+  variant        ProductVariant?        @relation(fields: [variantId], references: [id], onDelete: SetNull)
+  batchId        String?
+  batch          Batch?                 @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  type           StockMovementType
+  direction      StockMovementDirection
+  quantity       Int
+  runningBalance Int                    @default(0)
+  reason         String?
+  referenceType  String? // e.g. "Sale", "Purchase", "Return"
+  referenceId    String? // e.g. sale id, purchase id, return id
+  createdBy      String?
+  createdAt      DateTime               @default(now())
+
+  @@index([shopId])
+  @@index([productId])
+  @@index([variantId])
+  @@index([batchId])
+  @@index([createdAt])
+  @@index([productId, createdAt])
+  @@index([shopId, createdBy])
+}
+
+model Purchase {
+  id           String    @id @default(uuid())
+  shopId       String
+  shop         Shop      @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  supplierId   String?
+  supplier     Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  totalAmount  Decimal   @db.Decimal(12, 2)
+  purchaseDate DateTime  @default(now())
+  notes        String?
+  createdBy    String?
+  createdAt    DateTime  @default(now())
+
+  items   PurchaseItem[]
+  batches Batch[]
+
+  @@index([shopId])
+  @@index([supplierId])
+  @@index([purchaseDate])
+}
+
+model PurchaseItem {
+  id         String          @id @default(uuid())
+  purchaseId String
+  purchase   Purchase        @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  productId  String
+  product    Product         @relation(fields: [productId], references: [id], onDelete: Restrict)
+  quantity   Int
+  unitCost   Decimal         @db.Decimal(12, 2)
+  subtotal   Decimal         @db.Decimal(12, 2)
+  variantId  String?
+  variant    ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+  batchId    String?
+  batch      Batch?          @relation(fields: [batchId], references: [id], onDelete: SetNull)
+
+  @@index([purchaseId])
+  @@index([productId])
+  @@index([variantId])
+}
+
+model Sale {
+  id               String        @id @default(uuid())
+  shopId           String
+  shop             Shop          @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  receiptNumber    String        @unique
+  source           SaleSource    @default(POS)
+  subtotal         Decimal       @default(0) @db.Decimal(12, 2)
+  discount         Decimal       @default(0) @db.Decimal(12, 2)
+  totalAmount      Decimal       @db.Decimal(12, 2)
+  paymentMethod    PaymentMethod @default(CASH)
+  paymentStatus    PaymentStatus @default(PAID)
+  paymentReference String?
+  amountPaid       Decimal?      @db.Decimal(12, 2)
+  changeDue        Decimal?      @db.Decimal(12, 2)
+  registerName     String?
+  customerId       String?
+  customer         Customer?     @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  cashierId        String?
+  cashier          User?         @relation("SaleCashier", fields: [cashierId], references: [id], onDelete: SetNull)
+  registerId       String?
+  register         Register?     @relation(fields: [registerId], references: [id], onDelete: SetNull)
+  createdBy        String?
+  createdById      String?
+  createdAt        DateTime      @default(now())
+
+  items    SaleItem[]
+  payments Payment[]
+  returns  Return[]
+  refunds  Refund[]
+
+  @@index([shopId])
+  @@index([createdAt])
+  @@index([shopId, createdAt])
+  @@index([source])
+  @@index([cashierId])
+  @@index([registerId])
+}
+
+model SaleItem {
+  id          String          @id @default(uuid())
+  saleId      String
+  sale        Sale            @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  productId   String
+  product     Product         @relation(fields: [productId], references: [id], onDelete: Restrict)
+  variantId   String?
+  variant     ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+  batchId     String?
+  batch       Batch?          @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  quantity    Int
+  unitPrice   Decimal         @db.Decimal(12, 2)
+  buyingPrice Decimal         @db.Decimal(12, 2)
+  subtotal    Decimal         @db.Decimal(12, 2)
+  profit      Decimal         @db.Decimal(12, 2)
+
+  returnItems ReturnItem[]
+
+  @@index([saleId])
+  @@index([productId])
+  @@index([variantId])
+  @@index([batchId])
+}
+
+model Customer {
+  id        String   @id @default(uuid())
+  shopId    String
+  shop      Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  name      String
+  phone     String?
+  email     String?
+  address   String?
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sales  Sale[]
+  orders Order[]
+
+  @@index([shopId])
+  @@index([phone])
+}
+
+model Order {
+  id              String        @id @default(uuid())
+  shopId          String
+  shop            Shop          @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  orderNumber     String        @unique
+  source          SaleSource    @default(ONLINE)
+  status          OrderStatus   @default(PENDING)
+  customerId      String?
+  customer        Customer?     @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  customerName    String?
+  customerPhone   String?
+  customerEmail   String?
+  deliveryAddress String?
+  notes           String?
+  subtotal        Decimal       @default(0) @db.Decimal(12, 2)
+  discount        Decimal       @default(0) @db.Decimal(12, 2)
+  totalAmount     Decimal       @db.Decimal(12, 2)
+  paymentMethod   PaymentMethod @default(MPESA)
+  createdBy       String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  items OrderItem[]
+
+  @@index([shopId])
+  @@index([shopId, createdAt])
+  @@index([status])
+  @@index([source])
+}
+
+model OrderItem {
+  id          String          @id @default(uuid())
+  orderId     String
+  order       Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId   String
+  product     Product         @relation(fields: [productId], references: [id], onDelete: Restrict)
+  variantId   String?
+  variant     ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+  quantity    Int
+  unitPrice   Decimal         @db.Decimal(12, 2)
+  buyingPrice Decimal         @db.Decimal(12, 2)
+  subtotal    Decimal         @db.Decimal(12, 2)
+  profit      Decimal         @db.Decimal(12, 2)
+
+  @@index([orderId])
+  @@index([productId])
+  @@index([variantId])
+}
+
+model Expense {
+  id          String          @id @default(uuid())
+  shopId      String
+  shop        Shop            @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  category    ExpenseCategory
+  description String
+  amount      Decimal         @db.Decimal(12, 2)
+  expenseDate DateTime        @default(now())
+  createdBy   String?
+  createdAt   DateTime        @default(now())
+
+  @@index([shopId])
+  @@index([expenseDate])
+  @@index([shopId, expenseDate])
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  shopId    String
+  shop      Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  title     String
+  message   String
+  type      String   @default("info") // e.g. "low_stock" | "out_of_stock" | "warning" | "info"
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([shopId])
+  @@index([read])
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  shopId     String?
+  shop       Shop?    @relation(fields: [shopId], references: [id], onDelete: SetNull)
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action     String
+  entityType String?
+  entityId   String?
+  metadata   Json?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  @@index([shopId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+// ===== Payments (split payments per sale) =====
+// Each Sale can have multiple Payment records — one per payment method.
+// The sum of payments allocated to a sale must equal the totalAmount.
+// paymentTotal > totalAmount => changeDue (for cash overpayment).
+
+model Payment {
+  id            String        @id @default(uuid())
+  shopId        String
+  shop          Shop          @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  saleId        String
+  sale          Sale          @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  paymentMethod PaymentMethod
+  amount        Decimal       @db.Decimal(12, 2)
+  reference     String? // external transaction ID (M-Pesa code, card auth, etc.)
+  status        PaymentStatus @default(PAID)
+  registerId    String?
+  register      Register?     @relation(fields: [registerId], references: [id], onDelete: SetNull)
+  createdById   String?
+  createdAt     DateTime      @default(now())
+
+  @@index([shopId])
+  @@index([saleId])
+  @@index([registerId])
+  @@index([createdAt])
+}
+
+// Extend Sale with payments relation
+// (Prisma relations are declared on the model; we add Payment[] relation via Sale)
+// We also add return-related fields on Sale below.
+
+// ===== Returns & Refunds =====
+
+// A return tracks the return of items from a completed sale. A single sale can
+// generate multiple returns (partial returns). The system enforces that the sum
+// of returned quantities across all returns never exceeds the original quantity.
+
+model Return {
+  id            String          @id @default(uuid())
+  shopId        String
+  shop          Shop            @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  saleId        String
+  sale          Sale            @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  returnNumber  String          @unique
+  reason        ReturnReason
+  condition     ReturnCondition @default(GOOD)
+  status        ReturnStatus    @default(PENDING)
+  notes         String?
+  createdById   String?
+  createdAt     DateTime        @default(now())
+  processedAt   DateTime?
+  processedById String?
+
+  items   ReturnItem[]
+  refunds Refund[]
+
+  @@index([shopId])
+  @@index([saleId])
+  @@index([returnNumber])
+  @@index([createdAt])
+}
+
+model ReturnItem {
+  id         String          @id @default(uuid())
+  returnId   String
+  return     Return          @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  saleItemId String
+  saleItem   SaleItem        @relation(fields: [saleItemId], references: [id], onDelete: Restrict)
+  productId  String
+  product    Product         @relation(fields: [productId], references: [id], onDelete: Restrict)
+  variantId  String?
+  variant    ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+  quantity   Int
+  unitPrice  Decimal         @db.Decimal(12, 2)
+  subtotal   Decimal         @db.Decimal(12, 2)
+
+  @@index([returnId])
+  @@index([saleItemId])
+  @@index([productId])
+}
+
+model Refund {
+  id           String       @id @default(uuid())
+  shopId       String
+  shop         Shop         @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  returnId     String
+  return       Return       @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  saleId       String
+  sale         Sale         @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  refundNumber String       @unique
+  amount       Decimal      @db.Decimal(12, 2)
+  refundMethod RefundMethod @default(ORIGINAL)
+  reference    String? // external refund reference (M-Pesa reversal, etc.)
+  status       RefundStatus @default(PENDING)
+  registerId   String?
+  register     Register?    @relation(fields: [registerId], references: [id], onDelete: SetNull)
+  createdById  String?
+  approvedById String?
+  createdAt    DateTime     @default(now())
+  processedAt  DateTime?
+
+  @@index([shopId])
+  @@index([returnId])
+  @@index([saleId])
+  @@index([refundNumber])
+  @@index([createdAt])
+}
+
+// ===== Product Variants =====
+
+// Variants group closely related product options under a single parent
+// product. When a product has variants, inventory is tracked at the variant
+// level and the parent product's `quantity` becomes an aggregate sum (or is
+// ignored in favor of variant stock). A product without variants works
+// exactly as today — fully backward-compatible.
+
+model ProductVariant {
+  id                String   @id @default(uuid())
+  productId         String
+  product           Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  shopId            String
+  shop              Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  name              String // e.g. "Small / Black"
+  sku               String?
+  barcode           String?
+  buyingPrice       Decimal  @db.Decimal(12, 2)
+  sellingPrice      Decimal  @db.Decimal(12, 2)
+  quantity          Int      @default(0)
+  lowStockThreshold Int      @default(5)
+  imageUrl          String?
+  isActive          Boolean  @default(true)
+  sortOrder         Int      @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  stockMovements StockMovement[]
+  saleItems      SaleItem[]
+  orderItems     OrderItem[]
+  purchaseItems  PurchaseItem[]
+  returnItems    ReturnItem[]
+  batches        Batch[]
+
+  @@unique([shopId, sku])
+  @@unique([shopId, barcode])
+  @@index([productId])
+  @@index([shopId])
+}
+
+// ===== Batch / Expiry Tracking =====
+
+model Batch {
+  id                String          @id @default(uuid())
+  shopId            String
+  shop              Shop            @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  productId         String
+  product           Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variantId         String?
+  variant           ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+  batchNumber       String
+  supplierId        String?
+  supplier          Supplier?       @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  purchaseId        String?
+  purchase          Purchase?       @relation(fields: [purchaseId], references: [id], onDelete: SetNull)
+  manufacturingDate DateTime?
+  expiryDate        DateTime
+  quantityReceived  Int
+  quantityRemaining Int
+  costPerUnit       Decimal         @db.Decimal(12, 2)
+  status            BatchStatus     @default(ACTIVE)
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  stockMovements StockMovement[]
+  PurchaseItem   PurchaseItem[]
+  SaleItem       SaleItem[]
+
+  @@unique([shopId, batchNumber])
+  @@index([productId])
+  @@index([variantId])
+  @@index([expiryDate])
+  @@index([shopId])
+  @@index([status])
+}
+
+// ===== Tax Configuration =====
+
+// A TaxRate is a named tax percentage configured by the business.
+// Products can be assigned a taxRateId. Sales snapshot tax rates at the time
+// of sale via SaleItem.taxRate (hardcoded on the record) so historical
+// transactions remain correct even if tax settings change later.
+
+model TaxRate {
+  id        String          @id @default(uuid())
+  shopId    String
+  shop      Shop            @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  name      String // e.g. "VAT 16%", "Zero-rated"
+  rate      Decimal         @db.Decimal(5, 2) // e.g. 16.00 for 16%
+  type      TaxType         @default(EXCLUSIVE)
+  category  TaxCategoryType @default(TAXABLE)
+  isActive  Boolean         @default(true)
+  isDefault Boolean         @default(false)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  products Product[]
+
+  @@unique([shopId, name])
+  @@index([shopId])
+}
+
+// ===== Cash Movements (Register) =====
+// CashMovement tracks all cash flowing into/out of a register during a
+// shift, enabling accurate expected-cash calculation and full auditability.
+
+enum CashMovementType {
+  OPENING
+  CASH_SALE
+  CASH_REFUND
+  CASH_IN
+  CASH_OUT
+  EXPENSE
+  WITHDRAWAL
+  CLOSING
+  ADJUSTMENT
+}
+
+model CashMovement {
+  id            String           @id @default(uuid())
+  shopId        String
+  shop          Shop             @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  shiftId       String?
+  shift         Shift?           @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+  registerId    String
+  register      Register         @relation(fields: [registerId], references: [id], onDelete: Cascade)
+  type          CashMovementType
+  amount        Decimal          @db.Decimal(12, 2)
+  referenceType String? // "Sale", "Refund", "Expense", etc.
+  referenceId   String?
+  description   String?
+  createdById   String?
+  createdAt     DateTime         @default(now())
+
+  @@index([shopId])
+  @@index([shiftId])
+  @@index([registerId])
+  @@index([createdAt])
+}
+
+// ===== Offers & Promotions =====
+// Discounts configured by the business and surfaced on the storefront. The
+// authoritative discount calculation always happens server-side at checkout.
+// The effective status is derived from startDate/endDate rather than relying on
+// an admin manually disabling offers, so ACTIVE -> EXPIRED automatically.
+
+enum OfferStatus {
+  DRAFT
+  SCHEDULED
+  ACTIVE
+  EXPIRED
+  DISABLED
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED_AMOUNT
+}
+
+model Offer {
+  id                 String        @id @default(uuid())
+  shopId             String
+  shop               Shop          @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  name               String
+  description        String?
+  imageUrl           String?
+  imagePublicId      String?
+  discountType       DiscountType  @default(PERCENTAGE)
+  discountValue      Decimal       @db.Decimal(12, 2)
+  startDate          DateTime?
+  endDate            DateTime?
+  minimumPurchase    Decimal?      @db.Decimal(12, 2)
+  maximumDiscount    Decimal?      @db.Decimal(12, 2)
+  promoCode          String?
+  status             OfferStatus   @default(DRAFT)
+  visible            Boolean       @default(true)
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  products OfferProduct[]
+  categories OfferCategory[]
+
+  @@index([shopId])
+  @@index([shopId, status])
+  @@index([shopId, startDate, endDate])
+}
+
+// Join: which products an offer applies to.
+model OfferProduct {
+  id        String   @id @default(uuid())
+  offerId   String
+  offer     Offer    @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([offerId, productId])
+  @@index([offerId])
+  @@index([productId])
+}
+
+// Join: which categories an offer applies to.
+model OfferCategory {
+  id         String   @id @default(uuid())
+  offerId    String
+  offer      Offer    @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([offerId, categoryId])
+  @@index([offerId])
+  @@index([categoryId])
+}
+
+// ===== API & Integrations =====
+// External service credentials managed by the business. Secrets are always
+// encrypted at rest and only ever returned to the frontend as masked previews —
+// full secrets never leave the server.
+
+model ApiIntegration {
+  id            String   @id @default(uuid())
+  shopId        String
+  shop          Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  provider      String // e.g. "MPESA", "CLOUDINARY", "EMAIL", "SMS", "SHIPPING"
+  label         String
+  description   String?
+  status        String   @default("DISCONNECTED") // CONNECTED | DISCONNECTED | ERROR
+  // Encrypted credentials at rest. The plaintext secret is never persisted;
+  // we store an encrypted blob plus a masked preview for the UI.
+  encryptedCredential String?
+  maskedValue    String?
+  config        Json? // non-secret configuration (e.g. cloud name, sender id)
+  connectedAt   DateTime?
+  lastError     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([shopId])
+  @@unique([shopId, provider])
+}
