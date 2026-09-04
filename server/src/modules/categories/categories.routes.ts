@@ -23,7 +23,7 @@ async function uniqueSlug(shopId: string, name: string, excludeId?: string) {
   const base = slugify(name) || 'category';
   let candidate = base;
   let n = 2;
-  while (true) {
+  for (;;) {
     const existing = await prisma.category.findFirst({
       where: { shopId, slug: candidate, id: excludeId ? { not: excludeId } : undefined },
       select: { id: true },
