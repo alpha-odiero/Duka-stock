@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Outlet, Link, useNavigate } from 'react-router-dom';
-import { Facebook, Instagram, Linkedin, Mail, MapPin, Menu, MessageCircle, Phone, ShoppingBag, Truck, Twitter, X, Youtube } from 'lucide-react';
+import { Facebook, Instagram, Linkedin, Mail, MapPin, MessageCircle, Phone, ShoppingBag, Truck, Twitter, Youtube } from 'lucide-react';
 import { useStorefront } from '@/context/StorefrontContext';
 import { WhatsAppButton } from '@/pages/storefront/components';
 import { useCart } from '@/context/CartContext';
@@ -36,7 +36,6 @@ export function StorefrontLayout() {
   const navigate = useNavigate();
   const { count } = useCart();
   const [query, setQuery] = useState('');
-  const [menuOpen, setMenuOpen] = useState(false);
   const { config, isLoading, primary, accent, buttonRadius, href } = useStorefront();
 
   const submit = (e: React.FormEvent) => {

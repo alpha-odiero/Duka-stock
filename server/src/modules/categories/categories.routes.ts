@@ -23,7 +23,9 @@ async function uniqueSlug(shopId: string, name: string, excludeId?: string) {
   const base = slugify(name) || 'category';
   let candidate = base;
   let n = 2;
-  for (;;) {
+  const maxAttempts = 1000; // Prevent infinite loops
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const existing = await prisma.category.findFirst({
       where: { shopId, slug: candidate, id: excludeId ? { not: excludeId } : undefined },
       select: { id: true },
@@ -32,6 +34,9 @@ async function uniqueSlug(shopId: string, name: string, excludeId?: string) {
     candidate = `${base}-${n}`;
     n += 1;
   }
+
+  // Fallback if max attempts reached
+  return `${base}-${Date.now()}`;
 }
 
 router.get('/', requirePermission(PERMISSIONS.CATEGORIES_VIEW), async (req, res, next) => {

@@ -328,6 +328,22 @@ export async function createSale(
 
       if (updated && updated.kind === 'product') {
         productUpdates.push({ id: updated.id, name: updated.name, newQty: updated.quantity, threshold: updated.lowStockThreshold });
+      } else {
+        // Variant / batch / FEFO deductions do not return the parent product
+        // aggregate. Fetch it so every affected product gets its cache invalidated
+        // and low-stock/out-of-stock notifications fire against the aggregate.
+        const parent = await tx.product.findUnique({
+          where: { id: it.productId },
+          select: { id: true, name: true, quantity: true, lowStockThreshold: true },
+        });
+        if (parent) {
+          productUpdates.push({
+            id: parent.id,
+            name: parent.name,
+            newQty: parent.quantity,
+            threshold: parent.lowStockThreshold,
+          });
+        }
       }
     }
 
