@@ -13,6 +13,8 @@ jobs:
   test:
     name: Server tests
     runs-on: ubuntu-latest
+    # Tests use an ephemeral throwaway PostgreSQL service container (schema is
+    # wiped by the suite). NEVER add Neon production credentials to this file.
     services:
       postgres:
         image: postgres:16

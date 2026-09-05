@@ -1,19 +1,4 @@
 services:
-  db:
-    image: postgres:16-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-      POSTGRES_DB: dukastock
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   redis:
     image: redis:7-alpine
     restart: unless-stopped
@@ -30,17 +15,16 @@ services:
     build: .
     restart: unless-stopped
     depends_on:
-      db:
-        condition: service_healthy
       redis:
         condition: service_healthy
     environment:
       NODE_ENV: production
       PORT: 4000
-      # Production: pass DATABASE_URL (cloud PostgreSQL, e.g. Neon) in the
-      # container environment/secrets manager to use it instead of the local
-      # `db` service. Default keeps the bundled local database.
-      DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/dukastock?schema=public}
+      # DATABASE_URL is required: DukaStock uses a cloud PostgreSQL provider
+      # (Neon). Pass the "pooled" connection string with ?pgbouncer=true via
+      # the container environment or secrets manager, e.g.:
+      #   DATABASE_URL="postgresql://USER:PASSWORD@HOST-pooler.REGION.aws.neon.tech/DB?sslmode=require&pgbouncer=true"
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL (Neon PostgreSQL) in .env}
       REDIS_URL: redis://redis:6379
       SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET in .env}
       COOKIE_SECRET: ${COOKIE_SECRET:?set COOKIE_SECRET in .env}
@@ -51,5 +35,4 @@ services:
       - "${PORT:-4000}:4000"
 
 volumes:
-  pgdata:
   redisdata:

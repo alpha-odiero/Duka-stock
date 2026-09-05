@@ -38,7 +38,7 @@ dukastock/
 ## Prerequisites
 
 - Node.js >= 24
-- PostgreSQL >= 14
+- A Neon PostgreSQL database (cloud). A local PostgreSQL server is only needed if you want to run the test suite against a throwaway local test database instead of a Neon test branch.
 
 ## Setup
 
@@ -54,11 +54,13 @@ dukastock/
    cp .env.example .env
    ```
 
-   At minimum set `DATABASE_URL` (PostgreSQL), plus strong random `SESSION_SECRET` and `COOKIE_SECRET`:
+   At minimum set `DATABASE_URL` (Neon PostgreSQL), plus strong random `SESSION_SECRET` and `COOKIE_SECRET`:
 
    ```bash
    node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
    ```
+
+   For development, put your Neon connection string in the gitignored `server/.env` (`DATABASE_URL`). Use the **pooled** endpoint with `?pgbouncer=true` so Prisma works through Neon's connection pooler. See [Production database](#production-database-cloud-postgresql) for details.
 
 3. Create the database schema and generate the Prisma client:
 
@@ -130,6 +132,14 @@ npm install -g @playwright/test  # optional: add e2e later
 
 The server suite covers money handling (DECIMAL-as-string), input validation, and end-to-end sale flow with transactional rollback and shop isolation across tenants.
 
+> **Tests are destructive**: the suite re-creates and wipes the database schema, so `npm run test` must NEVER run against a database holding real data. By default it connects to a throwaway local database (`dukastock_test` on `127.0.0.1:5432`; requires local PostgreSQL >= 14). To run against a disposable Neon test branch instead, set `TEST_DATABASE_URL`:
+
+```bash
+# point tests at a disposable Neon test database/branch (never one with real data)
+export TEST_DATABASE_URL="postgresql://USER:PASSWORD@HOST-pooler.REGION.aws.neon.tech/test_db?sslmode=require&pgbouncer=true"
+npm run test
+```
+
 ## Deployment
 
 ### Production build
@@ -149,21 +159,21 @@ Build and run from the included `Dockerfile` (serves both API and the static cli
 docker compose up --build -d
 ```
 
-Set your real `DATABASE_URL` and secrets via the environment/secrets manager; never commit them.
+Set your real `DATABASE_URL` (Neon, with `?pgbouncer=true`) and secrets via the `.env` / secrets manager; never commit them. The compose file no longer bundles a local PostgreSQL — `DATABASE_URL` is required.
 
-### Production database (cloud PostgreSQL)
+### Production database (Neon PostgreSQL)
 
-Development uses the local PostgreSQL on `127.0.0.1:5432` (see `server/.env`). For **production**, point the backend at a cloud PostgreSQL provider (e.g. Neon) instead of the local `db` service:
+DukaStock uses **Neon PostgreSQL for both development and production** (the local `db` service was removed; `docker-compose.yml` requires `DATABASE_URL`). Neon gives you a **pooled (PgBouncer)** endpoint and a **direct** endpoint per branch:
 
-1. Create a cloud PostgreSQL project/database (e.g. Neon, database `neondb`).
-2. Configure a gitignored `server/.env.production` with the cloud `DATABASE_URL` (see below), OR set the same `DATABASE_URL` as a secret in your deployment platform.
-3. Deploy and set `NODE_ENV=production`.
+1. Create the database in the Neon console (project → branch → database, e.g. `neondb`).
+2. Copy the **pooled** connection string into the gitignored `server/.env` (development) or `server/.env.production` (production). Append `?pgbouncer=true` so Prisma runs through the pooler.
+3. Apply migrations once against the **direct** endpoint (`prisma migrate deploy`), then let the app use the pooled endpoint at runtime:
 
 Production `server/.env.production` (NEVER commit — this file is gitignored):
 
 ```dotenv
 NODE_ENV=production
-DATABASE_URL="postgresql://USER:PASSWORD@HOST/DATABASE?sslmode=require&pgbouncer=true"
+DATABASE_URL="postgresql://USER:PASSWORD@HOST-pooler.REGION.aws.neon.tech/neondb?sslmode=require&pgbouncer=true&connect_timeout=15"
 SESSION_SECRET="<strong random>"
 COOKIE_SECRET="<strong random>"
 COOKIE_SECURE=true
@@ -171,7 +181,7 @@ COOKIE_SECURE=true
 
 Notes:
 - When the backend runs with `NODE_ENV=production` it loads `server/.env.production`; otherwise it loads `server/.env`. Platform-set environment variables still take precedence.
-- For Neon's PgBouncer pooler endpoint, append `?pgbouncer=true` to the connection string so Prisma can connect. Prisma must talk to PostgreSQL over TLS (`sslmode=require`).
+- Use the **pooled** endpoint (hostname contains `-pooler`, plus `?pgbouncer=true`) for the application and Prisma. Use the **direct** endpoint (drop `-pooler`) for one-off `prisma migrate deploy`, `pg_dump`, or `pg_restore` operations. Prisma talks to PostgreSQL over TLS (`sslmode=require`).
 - Never put production credentials in source code, `.env.example`, README files, or the frontend (client-side) bundle.
 - Apply schema changes only through the established Prisma migration workflow (`npm run db:deploy` / `prisma migrate deploy`). Do NOT run `prisma db push` against production.
 
@@ -179,7 +189,7 @@ Notes:
 
 See `.env.example` for the full list. Key ones:
 
-- `DATABASE_URL` — PostgreSQL connection string
+- `DATABASE_URL` — Neon PostgreSQL connection string (pooled endpoint + `?pgbouncer=true` for the app; direct endpoint for one-off migration/backup commands)
 - `PORT` — API port (default `4000`)
 - `NODE_ENV` — `development` / `production`
 - `SESSION_SECRET`, `COOKIE_SECRET` — random secrets for session signing
