@@ -19,7 +19,8 @@
     "db:migrate": "npm run db:migrate -w server",
     "db:generate": "npm run db:generate -w server",
     "db:seed": "npm run db:seed -w server",
-    "db:reset": "npm run db:reset -w server"
+    "db:reset": "npm run db:reset -w server",
+    "postinstall": "npm run db:generate"
   },
   "devDependencies": {
     "concurrently": "^9.1.0"
