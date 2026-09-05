@@ -30,7 +30,9 @@ export function createApp(): Express {
         // Allow non-browser requests (e.g. curl, tests) that omit the origin.
         if (!origin || env.isTest) return callback(null, true);
         if (allowedOrigins.includes(origin)) return callback(null, true);
-        return callback(new Error('Not allowed by CORS'));
+        // Disallowed origins get a browser-level block (no CORS headers, 403)
+        // instead of surfacing as a 500 via the error handler.
+        return callback(null, false);
       },
       credentials: true,
     }),

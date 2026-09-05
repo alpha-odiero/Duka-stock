@@ -2,7 +2,12 @@ import axios, { AxiosError } from 'axios';
 
 // Single JSON API surface. Credentials are sent as HTTP-only cookies; we never
 // store tokens in localStorage.
-const baseURL = import.meta.env.VITE_API_URL || '/api/v1';
+// VITE_API_URL overrides the target; otherwise production builds default to the
+// deployed Render API (no proxy exists on static hosts) and dev uses the Vite
+// proxy (/api/v1 -> localhost:4000).
+const baseURL =
+  import.meta.env.VITE_API_URL ||
+  (import.meta.env.PROD ? 'https://duka-stock-api.onrender.com' : '/api/v1');
 
 export const api = axios.create({
   baseURL,

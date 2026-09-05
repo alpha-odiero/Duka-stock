@@ -21,7 +21,7 @@ export const env = {
   databaseUrl: required('DATABASE_URL'),
   port: Number(required('PORT', '4000')),
   nodeEnv: required('NODE_ENV', 'development'),
-  clientUrl: required('CLIENT_URL', 'http://localhost:5173'),
+  clientUrl: required('CLIENT_URL', 'http://localhost:5173,https://duka-stock-client.vercel.app'),
   sessionSecret: required('SESSION_SECRET'),
   cookieSecure: process.env.COOKIE_SECURE === 'true',
   isProduction: required('NODE_ENV', 'development') === 'production',
