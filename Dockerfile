@@ -1,5 +1,5 @@
 # ---- Build stage: install deps, generate Prisma client, build client & server ----
-FROM node:20-alpine AS build
+FROM node:24-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY client/package.json client/
@@ -11,7 +11,7 @@ RUN npx prisma generate --schema server/prisma/schema.prisma
 RUN npm run build
 
 # ---- Runtime stage: only what is needed to serve the API + static client ----
-FROM node:20-alpine AS runtime
+FROM node:24-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 
