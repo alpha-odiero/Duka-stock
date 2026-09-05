@@ -37,6 +37,7 @@
     "ioredis": "^6.0.0",
     "iron-session": "^8.0.2",
     "jsonwebtoken": "^9.0.3",
+    "prisma": "^6.19.3",
     "zod": "^3.24.2"
   },
   "devDependencies": {
@@ -52,7 +53,6 @@
     "eslint": "^8.57.1",
     "ioredis-mock": "^8.13.1",
     "prettier": "^3.4.2",
-    "prisma": "^6.19.3",
     "supertest": "^7.0.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
